@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang=" en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signup</title>
+</head>
+
+<body>
+    <h2>Admin Login</h2>
+    <form action="http://127.0.0.1:5000/admin-login" method="POST">
+        <label for="email">Email:</label><br>
+        <input type="email" id="email" name="email" required><br>
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password" required><br><br>
+        <button type="submit">Login</button>
+    </form>
+    <h2>Add Admin</h2>
+    <form id="addAdminForm">
+        <label for="admin_email">Email:</label><br>
+        <input type="email" id="admin_email" name="admin_email" required><br>
+        <label for="admin_password">Password:</label><br>
+        <input type="password" id="admin_password" name="admin_password" required><br><br>
+        <button type="button" onclick="addAdmin()">Add Admin</button>
+    </form>
+    <h2>Place Order</h2>
+    <form id="placeOrderForm" onsubmit="return submitOrder(event)">
+        <label for="userId">User ID:</label><br>
+        <input type="number" id="userId" required><br>
+        <label for="productId">Product ID:</label><br>
+        <input type="number" id="productId" required><br>
+        <label for="addressId">Address ID:</label><br>
+        <input type="number" id="addressId" required><br>
+        <label for="quantity">Quantity:</label><br>
+        <input type="number" id="quantity" value="1" min="1" required><br>
+        <label for="cashOnDelivery">Cash on Delivery:</label>
+        <input type="checkbox" id="cashOnDelivery"><br>
+        <label for="price">Price:</label><br>
+        <input type="number" id="price" step="0.01" min="0.01" required><br>
+        <button type="submit">Place Order</button>
+    </form>
+
+
+
+    <h2>Add to Cart</h2>
+    <form id="addToCartForm" action="http://127.0.0.1:5000/upload-cart" method="post">
+        <label for="productId">Product ID:</label><br>
+        <input type="text" id="productId" name="product_id" required><br>
+        <label for="userId">User ID:</label><br>
+        <input type="text" id="userId" name="user_id" required><br>
+        <label for="quantity">Quantity:</label><br>
+        <input type="number" id="quantity" name="quantity" value="1" min="1" required><br>
+        <button type="submit">Add to Cart</button>
+    </form>
+
+
+    <h2>Product Upload</h2>
+    <form action="http://127.0.0.1:5000/product-upload" method="post">
+        <label for="name">Product Name:</label><br>
+        <input type="text" id="name" name="name" required><br>
+        <label for="quantity">Quantity:</label><br>
+        <input type="number" id="quantity" name="quantity" required><br>
+        <label for="category">Category:</label><br>
+        <input type="text" id="category" name="category" required><br>
+        <label for="sub-category">Sub-Category:</label><br>
+        <input type="text" id="sub-category" name="sub-category" required><br>
+        <label for="company">Company:</label><br>
+        <input type="text" id="company" name="company" required><br>
+        <label for="description">Description:</label><br>
+        <textarea id="description" name="description" rows="4" required></textarea><br>
+        <label for="price">Price:</label><br>
+        <input type="number" id="price" name="price" step="0.01" required><br>
+        <label for="discount">Discount:</label><br>
+        <input type="number" id="discount" name="discount" step="0.01"><br><br>
+        <button type="submit">Upload Product</button>
+    </form>
+
+
+    <h2>Upload Image</h2>
+    <form action="http://127.0.0.1:5000/uploads" method="post" enctype="multipart/form-data">
+        <label for="product_id">Product:</label><br>
+        <input type="text" id="product_id" name="product_id" required><br>
+        <label for="file">Select an image:</label><br>
+        <input type="file" id="file" name="file" accept="image/*" required><br><br>
+        <button type="submit">Upload</button>
+    </form>
+    <h2>Signup</h2>
+    <form action="http://127.0.0.1:5000/signup" method="post">
+        <label for="username">Username:</label><br>
+        <input type="text" id="name" name="name" required><br>
+        <label for="username">Name:</label><br>
+        <input type="text" id="email" name="email" required><br>
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password" required><br><br>
+        <button type="submit">Signup</button>
+    </form>
+    <h2>Login</h2>
+    <form action="http://127.0.0.1:5000/login" method="post">
+        <label for="email">Email:</label><br>
+        <input type="text" id="email" name="email" required><br>
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password" required><br><br>
+        <button type="submit">Login</button>
+    </form>
+    <h2>Update Phone</h2>
+    <form action="http://127.0.0.1:5000/phone" method="post">
+        <label for="phone">New Address:</label><br>
+        <textarea id="phone" name="phone" rows="4" cols="50" required></textarea><br><br>
+        <button type="submit">Update Address</button>
+    </form>
+    <h2>Update Address</h2>
+    <form id="updateForm" method="post" onsubmit="return submitForm()">
+        <input type="text" id="addressIdInput" name="address_id" placeholder="Address ID" required><br>
+        <input type="text" name="address" placeholder="New Address" required><br>
+        <input type="text" name="city" placeholder="City" required><br>
+        <input type="text" name="postal_code" placeholder="Postal Code" required><br>
+        <button type="submit">Update Address</button>
+    </form>
+
+    <h2>Add Address</h2>
+    <form id="addForm">
+        <input type="text" name="user_id" placeholder="User ID" required><br>
+        <input type="text" name="address" placeholder="Address" required><br>
+        <input type="text" name="city" placeholder="City" required><br>
+        <input type="text" name="postal_code" placeholder="Postal Code" required><br>
+        <button type="button" onclick="addAddress()">Add Address</button>
+    </form>
+
+    <h2>Delete Address</h2>
+    <form id="deleteForm" action="/delete_address" method="post">
+        <label for="addressId">Address ID:</label><br>
+        <input type="number" id="addressId" name="address_id" required><br>
+        <button type="submit">Delete Address</button>
+    </form>
+    <h2>Retailer Login</h2>
+    <form action="http://127.0.0.1:5000/retailer-login" method="post">
+        <label for="email">Email:</label><br>
+        <input type="email" id="email" name="email" required><br>
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password" required><br><br>
+        <button type="submit">Login</button>
+    </form>
+    <br>
+    <h2>Retailer Signup</h2>
+    <form action="http://127.0.0.1:5000/retailer-signup" method="post">
+        <label for="name">Name:</label><br>
+        <input type="text" id="name" name="name" required><br>
+        <label for="email">Email:</label><br>
+        <input type="email" id="email" name="email" required><br>
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password" required><br>
+        <label for="phoneNo">Phone Number:</label><br>
+        <input type="text" id="phoneNo" name="phoneNo" required><br>
+        <label for="address">Address:</label><br>
+        <textarea id="address" name="address" rows="4" required></textarea><br><br>
+        <button type="submit">Signup</button>
+    </form>
+</body>
+<script>
+    function addAddress() {
+        const formData = new FormData(document.getElementById('addForm'));
+        const jsonData = {};
+        formData.forEach((value, key) => { jsonData[key] = value });
+
+        fetch('http://127.0.0.1:5000/add_address', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(jsonData)
+        })
+            .then(response => response.text())
+            .then(message => {
+                alert(message);
+                document.getElementById('addForm').reset();
+            })
+            .catch(error => console.error('Error:', error));
+    }
+    function submitForm() {
+        const addressId = document.getElementById('addressIdInput').value;
+        const form = document.getElementById('updateForm');
+        form.action = `http://127.0.0.1:5000/update_address/${addressId}`;
+        return true; // Allow form submission
+    }
+    document.getElementById('deleteForm').addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        const addressId = document.getElementById('addressId').value;
+
+        fetch(`http://127.0.0.1:5000/delete_address/${addressId}`, {
+            method: 'POST',
+        })
+            .then(response => {
+                if (response.ok) {
+                    alert('Address deleted successfully');
+                } else {
+                    alert('Address not found or deletion failed');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while deleting the address');
+            });
+    });
+    function submitOrder(event) {
+        event.preventDefault();  // Prevent form submission
+
+        // Collect form data
+        const formData = {
+            user_id: document.getElementById("userId").value,
+            product_id: document.getElementById("productId").value,
+            address_id: document.getElementById("addressId").value,
+            quantity: document.getElementById("quantity").value,
+            cash_on_delivery: document.getElementById("cashOnDelivery").checked,
+            price: document.getElementById("price").value
+        };
+
+        // Send POST request with JSON data
+        fetch('http://127.0.0.1:5000/order-the-product', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+            .then(response => {
+                response.text();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("Failed to place order");
+            });
+    }
+    function addAdmin() {
+        const adminEmail = document.getElementById("admin_email").value;
+        const adminPassword = document.getElementById("admin_password").value;
+
+        fetch("http://127.0.0.1:5000/add-admin", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                admin_email: adminEmail,
+                admin_password: adminPassword
+            })
+        })
+            .then(response => {
+                if (response.ok) {
+                    alert("Admin added successfully!");
+                } else {
+                    alert("Error adding admin!");
+                }
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                alert("Error adding admin!");
+            });
+    }
+</script>
+
+</html>
