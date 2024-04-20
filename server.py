@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
+import json
 import os
 from MySQLdb import IntegrityError
 from flask import Flask, jsonify, request, redirect, session
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Boolean
 
@@ -16,7 +17,7 @@ app.config["UPLOAD_FOLDER"] = "uploads"
 app.secret_key = "I am a Good Boy"
 app.permanent_session_lifetime = timedelta(days=7)
 db = SQLAlchemy(app)
-CORS(app)
+CORS(app, origins=["http://localhost:3000"])
 
 
 class User(db.Model):
@@ -189,21 +190,24 @@ class Admin(db.Model):
 
 @app.route("/admin-login", methods=["POST"])
 def admin_login():
-    admin_email = request.form["email"]
-    admin_password = request.form["password"]
+    data = request.get_json()
+    admin_email = data.get("email")
+    admin_password = data.get("password")
     admin = Admin.query.filter_by(email=admin_email).first()
     if admin:
         if admin.password == admin_password:
             session["admin_id"] = admin.id
-            return f"{admin.id}"
+            return jsonify({"admin_id": admin.id}), 200
         else:
-            return f"{admin.password}"
+            return "Incorrect password", 401
     else:
-        return "No such user"
+        return "No such admin", 404
 
 
 @app.route("/add-admin", methods=["POST"])
 def admin_add():
+    if "admin_id" not in session:
+        return "UnAuthorized", 404
     data = request.get_json()
     admin_email = data.get("admin_email")
     admin_password = data.get("admin_password")
