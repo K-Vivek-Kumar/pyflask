@@ -1,23 +1,33 @@
 from datetime import datetime, timedelta
-import json
 import os
 from MySQLdb import IntegrityError
-from flask import Flask, jsonify, request, redirect, session
-from flask_cors import CORS, cross_origin
+from flask import Flask, g, jsonify, redirect, request, session
+from flask_cors import CORS
+from flask_jwt_extended import (
+    JWTManager,
+    create_access_token,
+    get_jwt_identity,
+    jwt_required,
+    unset_jwt_cookies,
+)
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Boolean
+import jwt
 
 
 app = Flask(__name__)
-
-
+CORS(app, supports_credentials=True)
+db = SQLAlchemy()
 app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:@localhost/dev"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["UPLOAD_FOLDER"] = "uploads"
-app.secret_key = "I am a Good Boy"
-app.permanent_session_lifetime = timedelta(days=7)
-db = SQLAlchemy(app)
-CORS(app, origins=["http://localhost:3000"])
+app.config["JWT_SECRET_KEY"] = "please-remember-to-change-me"
+
+# app.config["SESSION_TYPE"] = "sqlalchemy"
+app.config["SECRET_KEY"] = "Vivek Kum"
+# app.config["SESSION_SQLALCHEMY"] = db
+jwt = JWTManager(app)
+db.init_app(app)
 
 
 class User(db.Model):
@@ -194,28 +204,44 @@ def admin_login():
     admin_email = data.get("email")
     admin_password = data.get("password")
     admin = Admin.query.filter_by(email=admin_email).first()
+    print(admin_email, admin_password)
     if admin:
         if admin.password == admin_password:
-            session["admin_id"] = admin.id
-            return jsonify({"admin_id": admin.id}), 200
+            access_token = create_access_token(identity=admin.email)
+            response = {"access_token": access_token}
+            return response
         else:
             return "Incorrect password", 401
     else:
         return "No such admin", 404
 
 
+@app.route("/logout", methods=["POST"])
+def logout():
+    response = jsonify({"msg": "logout successful"})
+    unset_jwt_cookies(response)
+    return response
+
+
+@app.route("/admin-home")
+@jwt_required()
+def admin_home():
+    current_user = get_jwt_identity()
+    response_body = {"admin": current_user}
+    response = jsonify(response_body)
+    return response
+
+
 @app.route("/add-admin", methods=["POST"])
+@jwt_required()
 def admin_add():
-    if "admin_id" not in session:
-        return "UnAuthorized", 404
     data = request.get_json()
     admin_email = data.get("admin_email")
     admin_password = data.get("admin_password")
     new_admin = Admin(admin_email, admin_password)
-
     db.session.add(new_admin)
     db.session.commit()
-    return "Done"
+    return "Admin added successfully", 200
 
 
 @app.route("/order-the-product", methods=["POST"])
