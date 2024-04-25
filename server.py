@@ -201,6 +201,24 @@ class Admin(db.Model):
         self.password = password
 
 
+@app.route("/user-profile")
+@jwt_required()
+def user_profile():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    user = User.query.filter_by(id=user_id).first()
+    user_data = {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "phone_number": user.phone_number,
+        "created_at": user.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    return jsonify({"user": user_data}), 200
+
+
 @app.route("/admin-login", methods=["POST"])
 def admin_login():
     data = request.get_json()
@@ -376,33 +394,6 @@ def admin_add():
     return "Admin added successfully", 200
 
 
-@app.route("/order-the-product", methods=["POST"])
-def order_product():
-    try:
-        data = request.get_json()
-        user_id = data.get("user_id")
-        product_id = data.get("product_id")
-        address_id = data.get("address_id")
-        quantity = data.get("quantity")
-        cash_on_delivery = data.get("cash_on_delivery")
-        price = data.get("price")
-        new_order = Order(
-            user_id=user_id,
-            product_id=product_id,
-            address=address_id,
-            quantity=quantity,
-            cash_on_delivery=cash_on_delivery,
-            price=price,
-        )
-        db.session.add(new_order)
-        db.session.commit()
-        return "Done"
-    except Exception as e:
-        db.session.rollback()
-        print(e)
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route("/cart")
 @jwt_required()
 def cart_items():
@@ -470,11 +461,68 @@ def update_address(address_id):
     return "Address updated successfully"
 
 
-@app.route("/add_address", methods=["POST"])
-def add_address():
-    data = request.get_json()
+@app.route("/order-the-product", methods=["POST"])
+@jwt_required()
+def order_product():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    try:
+        data = request.get_json()
+        product_id = data.get("product_id")
+        address_id = data.get("address_id")
+        quantity = data.get("quantity")
+        cash_on_delivery = data.get("cash_on_delivery")
+        price = data.get("price")
+        new_order = Order(
+            user_id=user_id,
+            product_id=product_id,
+            address=address_id,
+            quantity=quantity,
+            cash_on_delivery=cash_on_delivery,
+            price=price,
+        )
+        db.session.add(new_order)
+        db.session.commit()
+        return "Done"
+    except Exception as e:
+        db.session.rollback()
+        print(e)
+        return jsonify({"error": str(e)}), 500
 
-    user_id = data.get("user_id")
+
+@app.route("/address")
+@jwt_required()
+def userAddresses():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    try:
+        addresses = Address.query.filter_by(user_id=user_id).all()
+        serialized_addresses = [
+            {
+                "id": address.id,
+                "address": address.address,
+                "city": address.city,
+                "postal_code": address.postal_code,
+            }
+            for address in addresses
+        ]
+        return jsonify({"Addresses": serialized_addresses}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/add-address", methods=["POST"])
+@jwt_required()
+def add_address():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    data = request.get_json()
     address = data.get("address")
     city = data.get("city")
     postal_code = data.get("postal_code")
