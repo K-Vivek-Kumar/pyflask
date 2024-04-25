@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import os
 from MySQLdb import IntegrityError
-from flask import Flask, g, jsonify, redirect, request, session
+from flask import Flask, g, jsonify, redirect, request, send_from_directory, session
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager,
@@ -87,6 +87,7 @@ class Retailer(db.Model):
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    retailer_id = db.Column(db.Integer, db.ForeignKey("retailer.id"), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
     category = db.Column(db.String(50), nullable=False)
@@ -99,6 +100,7 @@ class Product(db.Model):
 
     def __init__(
         self,
+        retailerId,
         name,
         quantity,
         category,
@@ -109,6 +111,7 @@ class Product(db.Model):
         discount=0,
     ) -> None:
         self.name = name
+        self.retailer_id = retailerId
         self.quantity = quantity
         self.category = category
         self.sub_category = sub_category
@@ -207,7 +210,9 @@ def admin_login():
     print(admin_email, admin_password)
     if admin:
         if admin.password == admin_password:
-            access_token = create_access_token(identity=admin.email)
+            access_token = create_access_token(
+                identity={"type": "admin", "key": admin.email}
+            )
             response = {"access_token": access_token}
             return response
         else:
@@ -216,8 +221,71 @@ def admin_login():
         return "No such admin", 404
 
 
+@app.route("/login", methods=["POST"])
+def user_login():
+    if request.method == "POST":
+        data = request.get_json()
+        user_email = data.get("email")
+        user_password = data.get("password")
+        user = User.query.filter_by(email=user_email).first()
+        if user:
+            if user.password == user_password:
+                access_token = create_access_token(
+                    identity={"type": "user", "key": user_email, "id": user.id}
+                )
+                response = {"access_token": access_token}
+                return response
+            else:
+                return "Incorrect password", 401
+        else:
+            return "No such admin", 404
+
+
+@app.route("/retailer-login", methods=["POST"])
+def retailer_login():
+    data = request.get_json()
+    retailer_email = data.get("email")
+    retailer_password = data.get("password")
+    user: Retailer = Retailer.query.filter_by(email=retailer_email).first()
+    if user:
+        if user.password == retailer_password:
+            access_token = create_access_token(
+                identity={"type": "retailer", "key": retailer_email, "id": user.id}
+            )
+            response = {"access_token": access_token}
+            return response
+        else:
+            return f"Incorrect Password", 401
+    else:
+        return "No such user", 404
+
+
+@app.route("/current-retailer")
+@jwt_required()
+def current_retailer():
+    current_user = get_jwt_identity()
+    print(current_user)
+    if current_user["type"] != "retailer":
+        return jsonify({"error": "Protected Route"}), 403
+    return jsonify({"retailer": current_user["key"]}), 200
+
+
+@app.route("/current-user")
+@jwt_required()
+def current_user():
+    current_user = get_jwt_identity()
+    print(current_user)
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    return jsonify({"user": current_user["key"]}), 200
+
+
 @app.route("/logout", methods=["POST"])
+@jwt_required()
 def logout():
+    current_user = get_jwt_identity()
+    if not current_user:
+        return jsonify({"msg": "logout successful"})
     response = jsonify({"msg": "logout successful"})
     unset_jwt_cookies(response)
     return response
@@ -227,9 +295,73 @@ def logout():
 @jwt_required()
 def admin_home():
     current_user = get_jwt_identity()
-    response_body = {"admin": current_user}
-    response = jsonify(response_body)
-    return response
+    print(current_user)
+    if current_user["type"] != "admin":
+        return jsonify({"error": "Protected Route"}), 403
+    return jsonify({"admin": current_user["key"]}), 200
+
+
+@app.route("/image/<int:prodId>")
+def show_images_one(prodId):
+    try:
+        filename = (
+            Image.query.filter_by(product_id=prodId)
+            .with_entities(Image.filename)
+            .first()
+        )
+        filename = filename[0]
+        image_urls = [f"/images/uploads/{filename}"]
+        return jsonify({"images": image_urls}), 200
+    except Exception as e:
+        return jsonify({"error": "Internal Server Error"}), 500
+
+
+@app.route("/images/<int:prodId>")
+def show_images(prodId):
+    try:
+        filenames = (
+            Image.query.filter_by(product_id=prodId).with_entities(Image.filename).all()
+        )
+        image_filenames = [filename[0] for filename in filenames]
+        image_urls = [f"/images/uploads/{filename}" for filename in image_filenames]
+        return jsonify({"images": image_urls}), 200
+    except Exception as e:
+        return jsonify({"error": "Internal Server Error"}), 500
+
+
+@app.route("/images/uploads/<filename>")
+def get_image(filename):
+    uploads_dir = app.config["UPLOAD_FOLDER"]
+    try:
+        return send_from_directory(uploads_dir, filename)
+
+    except Exception as e:
+        return jsonify({"error": "Image not found"}), 404
+
+
+@app.route("/products/<int:prodId>")
+def show_product(prodId):
+    print("received: ", prodId)
+    try:
+        product = Product.query.filter_by(id=int(prodId)).first()
+        print(product)
+        if product:
+            product_data = {
+                "name": product.name,
+                "quantity": product.quantity,
+                "category": product.category,
+                "sub_category": product.sub_category,
+                "company": product.company,
+                "description": product.description,
+                "price": product.price,
+                "discount": product.discount,
+            }
+            return jsonify(product_data), 200
+        else:
+            return jsonify({"error": "Product not found"}), 404
+    except Exception as e:
+        print(f"Error fetching product: {str(e)}")
+        return jsonify({"error": "Internal Server Error"}), 500
 
 
 @app.route("/add-admin", methods=["POST"])
@@ -271,15 +403,56 @@ def order_product():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/cart")
+@jwt_required()
+def cart_items():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    items = Cart.query.filter_by(user_id=int(user_id))
+    products = []
+    for item in items:
+        prodId = item.product_id
+        product = Product.query.filter_by(id=prodId).first()
+        product_data = {
+            "name": product.name,
+            "category": product.category,
+            "sub_category": product.sub_category,
+            "company": product.company,
+            "description": product.description,
+            "price": product.price,
+            "discount": product.discount,
+            "quantity": item.quantity,
+        }
+        products.append(product_data)
+    response = {"Items": products}
+    return jsonify(response), 200
+
+
 @app.route("/upload-cart", methods=["POST"])
+@jwt_required()
 def cart_upload():
-    product_id = request.form["product_id"]
-    user_id = request.form["user_id"]
-    quantity = request.form["quantity"]
-    newCart = Cart(product_id, user_id, quantity)
-    db.session.add(newCart)
-    db.session.commit()
-    return "Added to Cart"
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    data = request.get_json()
+    product_id = data.get("product_id")
+    quantity = data.get("quantity")
+    existing_cart_item = Cart.query.filter_by(
+        product_id=product_id, user_id=user_id
+    ).first()
+
+    if existing_cart_item:
+        existing_cart_item.quantity = quantity
+        db.session.commit()
+        return jsonify({"message": "Quantity updated in Cart"}), 200
+    else:
+        new_cart_item = Cart(productId=product_id, userId=user_id, quantity=quantity)
+        db.session.add(new_cart_item)
+        db.session.commit()
+        return jsonify({"message": "Added to Cart"}), 200
 
 
 @app.route("/update_address/<int:address_id>", methods=["POST"])
@@ -356,35 +529,25 @@ def update_phone():
         return "Login Required", 401
 
 
-@app.route("/login", methods=["POST"])
-def user_login():
-    if request.method == "POST":
-        user_email = request.form["email"]
-        user_password = request.form["password"]
-        user = User.query.filter_by(email=user_email).first()
-        if user:
-            if user.password == user_password:
-                session["user_id"] = user.id
-                return f"{user.id}"
-            else:
-                return f"{user.password}"
-        else:
-            return "No such user"
-
-
 @app.route("/product-upload", methods=["POST"])
+@jwt_required()
 def product_upload():
-    if "retailer_id" not in session:
-        return "Login Error"
-    product_name = request.form["name"]
-    product_quantity = request.form["quantity"]
-    product_category = request.form["category"]
-    product_sub_category = request.form["sub-category"]
-    product_company = request.form["company"]
-    product_description = request.form["description"]
-    product_price = request.form["price"]
-    product_discount = request.form["discount"]
+    current_user = get_jwt_identity()
+    if not current_user or current_user["type"] != "retailer":
+        return jsonify({"error": "Protected Route"}), 403
+    retailedId = current_user["id"]
+    data = request.get_json()
+    product_retailer = retailedId
+    product_name = data.get("name")
+    product_quantity = data.get("quantity")
+    product_category = data.get("category")
+    product_sub_category = data.get("subCategory")
+    product_company = data.get("company")
+    product_description = data.get("description")
+    product_price = data.get("price")
+    product_discount = data.get("discount")
     newProduct = Product(
+        product_retailer,
         product_name,
         product_quantity,
         product_category,
@@ -399,20 +562,72 @@ def product_upload():
     return "Product Uploaded"
 
 
+@app.route("/products")
+def get_products():
+    page_number = request.args.get("page", default=1, type=int)
+    per_page = 10
+
+    products = Product.query.paginate(
+        page=page_number, per_page=per_page, error_out=False
+    )
+
+    product_list = []
+    for product in products.items:
+        product_data = {
+            "id": product.id,
+            "name": product.name,
+            "quantity": product.quantity,
+            "category": product.category,
+            "sub_category": product.sub_category,
+            "company": product.company,
+            "description": product.description,
+            "price": product.price,
+            "discount": product.discount,
+            "active": product.active,
+        }
+        product_list.append(product_data)
+
+    response = {
+        "products": product_list,
+        "page": products.page,
+        "has_next": products.has_next,
+        "has_prev": products.has_prev,
+        "next_page": products.next_num,
+        "prev_page": products.prev_num,
+    }
+
+    return jsonify(response)
+
+
 @app.route("/uploads", methods=["POST"])
+@jwt_required()
 def upload_image():
-    if "retailer_id" not in session:
-        return "Login Error"
+    current_user = get_jwt_identity()
+    if current_user["type"] != "retailer":
+        return jsonify({"error": "Unauthorized"}), 403
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
     file = request.files["file"]
-    product_id = request.form["product_id"]
-    if file:
-        file_name = f"{file.filename}"
+    productId = int(request.form.get("product_id"))
+    print(file, productId)
+
+    if not file:
+        return jsonify({"error": "No file provided"}), 400
+
+    if not productId:
+        return jsonify({"error": "Product ID not provided"}), 400
+
+    try:
+        file_name = file.filename
         file.save(os.path.join(app.config["UPLOAD_FOLDER"], file_name))
-        newFile = Image(product_id, file_name)
-        db.session.add(newFile)
+        new_image = Image(product_id=productId, fileName=file_name)
+        db.session.add(new_image)
         db.session.commit()
-        return "File Uploaded"
-    return "Retry"
+
+        return jsonify({"message": "File uploaded successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/signup", methods=["POST"])
@@ -425,21 +640,6 @@ def user_signup():
     db.session.commit()
     session["user_id"] = new_user.id
     return f"{user_name} is registered"
-
-
-@app.route("/retailer-login", methods=["POST"])
-def retailer_login():
-    retailer_email = request.form["email"]
-    retailer_password = request.form["password"]
-    user: Retailer = Retailer.query.filter_by(email=retailer_email).first()
-    if user:
-        if user.password == retailer_password:
-            session["retailer_id"] = user.id
-            return f"{user.id}"
-        else:
-            return f"Incorrect Password"
-    else:
-        return "No such user"
 
 
 @app.route("/retailer-signup", methods=["POST"])
