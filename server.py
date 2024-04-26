@@ -12,7 +12,7 @@ from flask_jwt_extended import (
 )
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Boolean
-import jwt
+from bcrypt import hashpw, gensalt, checkpw
 
 
 app = Flask(__name__)
@@ -201,6 +201,79 @@ class Admin(db.Model):
         self.password = password
 
 
+class Payments(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+    payed_at = db.Column(db.DateTime, default=datetime.today)
+
+    def __init__(self, order_id) -> None:
+        self.order_id = order_id
+
+
+@app.route("/admin-stats")
+@jwt_required()
+def stats():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "admin":
+        return jsonify({"error": "Protected Route"}), 403
+    total_users = User.query.count()
+    twenty_four_hours_ago = datetime.today() - timedelta(hours=24)
+    new_users_last_24_hours = User.query.filter(
+        User.created_at >= twenty_four_hours_ago
+    ).count()
+    one_month_ago = datetime.today() - timedelta(days=30)
+    users_since_last_month = User.query.filter(User.created_at >= one_month_ago).count()
+    total_retailers = Retailer.query.count()
+
+    twenty_four_hours_ago = datetime.today() - timedelta(hours=24)
+    new_retailers_last_24_hours = Retailer.query.filter(
+        Retailer.created_at >= twenty_four_hours_ago
+    ).count()
+
+    one_month_ago = datetime.today() - timedelta(days=30)
+    retailers_since_last_month = Retailer.query.filter(
+        Retailer.created_at >= one_month_ago
+    ).count()
+    data = {
+        "total_users": total_users,
+        "new_users_last_24_hours": new_users_last_24_hours,
+        "users_since_last_month": users_since_last_month,
+        "total_retailers": total_retailers,
+        "new_retailers_last_24_hours": new_retailers_last_24_hours,
+        "retailers_since_last_month": retailers_since_last_month,
+    }
+    return jsonify({"data": data}), 200
+
+
+@app.route("/pending-orders")
+@jwt_required()
+def pending_orders():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    allOrders = Order.query.filter_by(user_id=int(user_id)).all()
+    order_list = []
+    for order in allOrders:
+        order_data = {
+            "order_id": order.id,
+            "product_id": order.product_id,
+            "product_name": Product.query.filter_by(id=order.product_id).first().name,
+            "status": order.status,
+            "cash_on_delivery": order.cash_on_delivery,
+            "date_of_order": order.date_of_order.strftime("%Y-%m-%d %H:%M:%S"),
+            "date_of_delivery": (
+                order.date_of_delivery.strftime("%Y-%m-%d %H:%M:%S")
+                if order.date_of_delivery
+                else None
+            ),
+            "price": order.price,
+        }
+        order_list.append(order_data)
+
+    return jsonify({"allOrders": order_list}), 200
+
+
 @app.route("/user-profile")
 @jwt_required()
 def user_profile():
@@ -227,7 +300,10 @@ def admin_login():
     admin = Admin.query.filter_by(email=admin_email).first()
     print(admin_email, admin_password)
     if admin:
-        if admin.password == admin_password:
+        stored_hashed_password = admin.password.encode("utf-8")
+        provided_password = admin_password.encode("utf-8")
+
+        if checkpw(provided_password, stored_hashed_password):
             access_token = create_access_token(
                 identity={"type": "admin", "key": admin.email}
             )
@@ -247,16 +323,16 @@ def user_login():
         user_password = data.get("password")
         user = User.query.filter_by(email=user_email).first()
         if user:
-            if user.password == user_password:
+            if checkpw(user_password.encode("utf-8"), user.password.encode("utf-8")):
                 access_token = create_access_token(
                     identity={"type": "user", "key": user_email, "id": user.id}
                 )
                 response = {"access_token": access_token}
-                return response
+                return jsonify(response)
             else:
                 return "Incorrect password", 401
         else:
-            return "No such admin", 404
+            return "No such user", 404
 
 
 @app.route("/retailer-login", methods=["POST"])
@@ -266,7 +342,10 @@ def retailer_login():
     retailer_password = data.get("password")
     user: Retailer = Retailer.query.filter_by(email=retailer_email).first()
     if user:
-        if user.password == retailer_password:
+        stored_hashed_password = user.password.encode("utf-8")
+        provided_password = retailer_password.encode("utf-8")
+
+        if checkpw(provided_password, stored_hashed_password):
             access_token = create_access_token(
                 identity={"type": "retailer", "key": retailer_email, "id": user.id}
             )
@@ -388,7 +467,8 @@ def admin_add():
     data = request.get_json()
     admin_email = data.get("admin_email")
     admin_password = data.get("admin_password")
-    new_admin = Admin(admin_email, admin_password)
+    hashed_password = hashpw(admin_password.encode("utf-8"), gensalt())
+    new_admin = Admin(admin_email, hashed_password)
     db.session.add(new_admin)
     db.session.commit()
     return "Admin added successfully", 200
@@ -476,6 +556,23 @@ def update_address(address_id):
     return "Address updated successfully"
 
 
+@app.route("/make-payment", methods=["POST"])
+@jwt_required()
+def make_payment():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    orderId = request.get_json().get("orderId")
+    newPayment = Payments(order_id=orderId)
+    orderMade: Order = Order.query.filter_by(id=orderId).first()
+    if orderMade.status == 0 and not orderMade.cash_on_delivery:
+        orderMade.status = 1
+        db.session.add(newPayment)
+    db.session.commit()
+    return "Payment Done Successfully", 200
+
+
 @app.route("/order-the-product", methods=["POST"])
 @jwt_required()
 def order_product():
@@ -489,6 +586,10 @@ def order_product():
         address_id = data.get("address_id")
         quantity = data.get("quantity")
         cash_on_delivery = data.get("cash_on_delivery")
+        if cash_on_delivery:
+            stat = 1
+        else:
+            stat = 0
         price = data.get("price")
         new_order = Order(
             user_id=user_id,
@@ -496,6 +597,7 @@ def order_product():
             address=address_id,
             quantity=quantity,
             cash_on_delivery=cash_on_delivery,
+            status=stat,
             price=price,
         )
         db.session.add(new_order)
@@ -695,34 +797,36 @@ def upload_image():
 
 @app.route("/signup", methods=["POST"])
 def user_signup():
-    user_email = request.form["email"]
-    user_name = request.form["name"]
-    user_password = request.form["password"]
-    new_user = User(user_name, user_email, user_password)
+    data = request.get_json()
+    user_email = data.get("email")
+    user_name = data.get("name")
+    user_password = data.get("password")
+    hashed_password = hashpw(user_password.encode("utf-8"), gensalt())
+    new_user = User(user_name, user_email, hashed_password)
     db.session.add(new_user)
     db.session.commit()
-    session["user_id"] = new_user.id
-    return f"{user_name} is registered"
+    return f"{user_name} is registered", 200
 
 
 @app.route("/retailer-signup", methods=["POST"])
 def retailer_signup():
-    retailer_email = request.form["email"]
-    retailer_name = request.form["name"]
-    retailer_password = request.form["password"]
-    retailer_phone_number = request.form["phoneNo"]
-    retailer_address = request.form["address"]
+    data = request.get_json()
+    retailer_email = data.get("email")
+    retailer_name = data.get("name")
+    retailer_password = data.get("password")
+    hashed_password = hashpw(retailer_password.encode("utf-8"), gensalt())
+    retailer_phone_number = data.get("phoneNo")
+    retailer_address = data.get("address")
     new_user = Retailer(
         retailer_name,
         retailer_email,
-        retailer_password,
+        hashed_password,
         retailer_phone_number,
         retailer_address,
     )
     db.session.add(new_user)
     db.session.commit()
-    session["retailer_id"] = new_user.id
-    return f"{retailer_name} is registered"
+    return f"{retailer_name} is registered", 200
 
 
 @app.route("/name")
