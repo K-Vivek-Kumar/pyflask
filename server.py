@@ -394,6 +394,21 @@ def admin_add():
     return "Admin added successfully", 200
 
 
+@app.route("/update-phone-number", methods=["POST"])
+@jwt_required()
+def newPhoneNumber():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "user":
+        return jsonify({"error": "Protected Route"}), 403
+    user_id = current_user["id"]
+    user: User = User.query.filter_by(id=int(user_id)).first()
+    data = request.get_json()
+    phoneNo = data.get("phoneNo")
+    user.phone_number = phoneNo
+    db.session.commit()
+    return "Phone Number Updated", 200
+
+
 @app.route("/cart")
 @jwt_required()
 def cart_items():
