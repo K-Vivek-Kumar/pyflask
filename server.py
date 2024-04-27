@@ -234,6 +234,20 @@ def stats():
     retailers_since_last_month = Retailer.query.filter(
         Retailer.created_at >= one_month_ago
     ).count()
+    total_orders_price = db.session.query(db.func.sum(Order.price)).scalar()
+    Payments_count = Payments.query.count()
+    Payments_count_today = Payments.query.filter(
+        Payments.payed_at >= twenty_four_hours_ago
+    ).count()
+    today = datetime.today().date()
+    start_of_day = datetime.combine(today, datetime.min.time())
+    end_of_day = datetime.combine(today, datetime.max.time())
+    users_ordered_more_than_5 = len(
+        set(cart.user_id for cart in Cart.query.all() if cart.quantity > 5)
+    )
+    users_ordered_more_than_10 = len(
+        set(cart.user_id for cart in Cart.query.all() if cart.quantity > 10)
+    )
     data = {
         "total_users": total_users,
         "new_users_last_24_hours": new_users_last_24_hours,
@@ -241,6 +255,11 @@ def stats():
         "total_retailers": total_retailers,
         "new_retailers_last_24_hours": new_retailers_last_24_hours,
         "retailers_since_last_month": retailers_since_last_month,
+        "total_orders_price ": total_orders_price,
+        "Payments_count": Payments_count,
+        "Payments_count_today": Payments_count_today,
+        "users_ordered_more_than_5": users_ordered_more_than_5,
+        "users_ordered_more_than_10": users_ordered_more_than_10,
     }
     return jsonify({"data": data}), 200
 
@@ -300,10 +319,7 @@ def admin_login():
     admin = Admin.query.filter_by(email=admin_email).first()
     print(admin_email, admin_password)
     if admin:
-        stored_hashed_password = admin.password.encode("utf-8")
-        provided_password = admin_password.encode("utf-8")
-
-        if checkpw(provided_password, stored_hashed_password):
+        if admin.password == admin_password:
             access_token = create_access_token(
                 identity={"type": "admin", "key": admin.email}
             )
@@ -371,7 +387,6 @@ def current_retailer():
 @jwt_required()
 def current_user():
     current_user = get_jwt_identity()
-    print(current_user)
     if current_user["type"] != "user":
         return jsonify({"error": "Protected Route"}), 403
     return jsonify({"user": current_user["key"]}), 200
@@ -464,11 +479,13 @@ def show_product(prodId):
 @app.route("/add-admin", methods=["POST"])
 @jwt_required()
 def admin_add():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "admin":
+        return jsonify({"error": "Protected Route"}), 403
     data = request.get_json()
     admin_email = data.get("admin_email")
     admin_password = data.get("admin_password")
-    hashed_password = hashpw(admin_password.encode("utf-8"), gensalt())
-    new_admin = Admin(admin_email, hashed_password)
+    new_admin = Admin(admin_email, admin_password)
     db.session.add(new_admin)
     db.session.commit()
     return "Admin added successfully", 200
@@ -724,17 +741,27 @@ def product_upload():
     )
     db.session.add(newProduct)
     db.session.commit()
-    return "Product Uploaded"
+    return f"Product Uploaded", 200
+
+
+from flask import request, jsonify
+from sqlalchemy import or_
 
 
 @app.route("/products")
 def get_products():
     page_number = request.args.get("page", default=1, type=int)
     per_page = 10
+    search_query = request.args.get("q", "")
 
-    products = Product.query.paginate(
-        page=page_number, per_page=per_page, error_out=False
-    )
+    products = Product.query.filter(
+        or_(
+            Product.name.ilike(f"%{search_query}%"),
+            Product.description.ilike(f"%{search_query}%"),
+            Product.category.ilike(f"%{search_query}%"),
+            Product.sub_category.ilike(f"%{search_query}%"),
+        )
+    ).paginate(page=page_number, per_page=per_page, error_out=False)
 
     product_list = []
     for product in products.items:
@@ -757,8 +784,8 @@ def get_products():
         "page": products.page,
         "has_next": products.has_next,
         "has_prev": products.has_prev,
-        "next_page": products.next_num,
-        "prev_page": products.prev_num,
+        "next_page": products.next_num if products.has_next else None,
+        "prev_page": products.prev_num if products.has_prev else None,
     }
 
     return jsonify(response)
@@ -829,13 +856,111 @@ def retailer_signup():
     return f"{retailer_name} is registered", 200
 
 
+@app.route("/push-status/<int:order_id>", methods=["POST"])
+@jwt_required()
+def push_prod(order_id):
+    current_user = get_jwt_identity()
+    if current_user["type"] != "retailer":
+        return jsonify({"error": "Unauthorized"}), 403
+    retailedId = current_user["id"]
+    order = Order.query.filter_by(id=order_id).first()
+    prodId = order.product_id
+    product = Product.query.filter_by(id=prodId).first()
+    if product.retailer_id == retailedId:
+        if order.status == 0:
+            return "Payment yet to be done"
+        elif order.status == 1:
+            order.status = 2
+        elif order.status == 2:
+            order.status = 3
+            order.date_of_delivery = datetime.today()
+        db.session.commit()
+        return "Status Pushed", 200
+    else:
+        return "Protected area", 403
+
+
+@app.route("/activate/<int:product_id>", methods=["POST"])
+@jwt_required()
+def activate_prod(product_id):
+    current_user = get_jwt_identity()
+    if current_user["type"] != "retailer":
+        return jsonify({"error": "Unauthorized"}), 403
+    retailedId = current_user["id"]
+    prod = Product.query.filter_by(id=product_id).first()
+    if prod.retailer_id == retailedId:
+        if prod.quantity > 0:
+            c = Image.query.filter_by(product_id=prod.id).count()
+            if c < 1:
+                return "Upload images to activate", 200
+            if prod.active == False:
+                prod.active = True
+            else:
+                prod.active = False
+            db.session.commit()
+            return "Done", 200
+        else:
+            return "Product quantity insufficient", 200
+    else:
+        return "Protected area", 403
+
+
+@app.route("/active-orders")
+@jwt_required()
+def active_orders():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "retailer":
+        return jsonify({"error": "Unauthorized"}), 403
+    retailedId = current_user["id"]
+    prods = Order.query.all()
+    ret_orders = []
+    for prod in prods:
+        isYes = Product.query.filter_by(id=prod.product_id).first()
+        if isYes and isYes.retailer_id == retailedId:
+            add = Address.query.filter_by(id=prod.address).first()
+            order_data = {
+                "id": prod.id,
+                "product_id": prod.product_id,
+                "address": f"{add.address}, {add.city}, {add.postal_code}",
+                "quantity": prod.quantity,
+                "cash_on_delivery": prod.cash_on_delivery,
+                "price": prod.price,
+                "status": prod.status,
+                "date_of_order": prod.date_of_order.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            ret_orders.append(order_data)
+    return jsonify({"order": ret_orders}), 200
+
+
+@app.route("/inventory")
+@jwt_required()
+def inventory():
+    current_user = get_jwt_identity()
+    if current_user["type"] != "retailer":
+        return jsonify({"error": "Unauthorized"}), 403
+    retailedId = current_user["id"]
+    items = Product.query.filter_by(retailer_id=retailedId).all()
+    item_to = []
+    for item in items:
+        eachItem = {
+            "id": item.id,
+            "name": item.name,
+            "quantity": item.quantity,
+            "category": item.category,
+            "sub_category": item.sub_category,
+            "company": item.company,
+            "description": item.description,
+            "price": item.price,
+            "discount": item.discount,
+            "active": item.active,
+        }
+        item_to.append(eachItem)
+    return jsonify({"items": item_to}), 200
+
+
 @app.route("/name")
 def name():
-    if "user_id" in session:
-        user_id = session["user_id"]
-        return f"User ID: {user_id}"
-    else:
-        return "User ID not found in session"
+    return "hello", 200
 
 
 @app.route("/retailer-name")
