@@ -67,7 +67,7 @@ class Product(db.Model):
     category = db.Column(db.String(50), nullable=False)
     sub_category = db.Column(db.String(50), nullable=False)
     company = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.String(500), nullable=False)
+    description = db.Column(db.String(1000), nullable=False)
     price = db.Column(db.Float, nullable=False)
     discount = db.Column(db.Float, default=0)
     active = db.Column(Boolean, default=False)
